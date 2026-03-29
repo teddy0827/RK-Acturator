@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>RK Parameter & Actuator - Grid Deformation 시각화</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; padding: 20px; }
+  h1 { text-align: center; color: #1a1a1a; font-size: 28px; margin: 30px 0 10px; }
+  h2 { text-align: center; color: #666; font-size: 15px; margin-bottom: 10px; font-weight: normal; }
+  .section-title {
+    text-align: center; font-size: 24px; color: #333; margin: 60px 0 25px;
+    padding: 15px; border-top: 2px solid #ccc; border-bottom: 2px solid #ccc;
+  }
+  .legend {
+    display: flex; justify-content: center; gap: 30px; margin: 15px 0 30px; flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #444; }
+  .legend-line { width: 30px; height: 3px; }
+
+  .shot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 18px; max-width: 1500px; margin: 0 auto 40px;
+  }
+  .shot-card {
+    background: #fff; border-radius: 12px; padding: 16px;
+    border: 1px solid #ddd; text-align: center; transition: transform 0.2s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .shot-card:hover { transform: translateY(-2px); border-color: #aaa; }
+  /* .shot-card.error removed */
+  .shot-card .k-label { font-size: 22px; font-weight: bold; color: #1a1a1a; }
+  .shot-card .k-name { font-size: 14px; color: #444; margin: 3px 0; }
+  .shot-card .k-term { font-size: 13px; color: #666; font-family: 'Consolas','Courier New', monospace; margin-bottom: 8px; }
+  .shot-card .k-desc { font-size: 12px; color: #555; margin-top: 6px; line-height: 1.5; text-align: left; padding: 0 5px; }
+  .shot-card canvas { display: block; margin: 0 auto; border-radius: 4px; }
+
+  .actuator-badge {
+    display: inline-block; padding: 5px 14px; border-radius: 20px;
+    font-size: 13px; font-weight: bold; margin-top: 8px;
+  }
+  .act-scan { background: #e8f5e9; color: #2e7d32; border: 1px solid #4caf50; }
+  .act-lens { background: #e3f2fd; color: #1565c0; border: 1px solid #42a5f5; }
+  .act-scanlens { background: #fff3e0; color: #e65100; border: 1px solid #ff9800; }
+  .act-none { background: #ffebee; color: #c62828; border: 1px solid #ef5350; }
+  /* .error-mark removed */
+
+  .note-box {
+    max-width: 1000px; margin: 20px auto; padding: 15px 20px;
+    background: #fff; border-left: 4px solid #1976d2; border-radius: 0 8px 8px 0;
+    font-size: 14px; line-height: 1.8; color: #333;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  .note-box.warn { border-left-color: #d32f2f; background: #fff8f8; }
+
+  /* Comparison table */
+  .compare-wrap { max-width: 1100px; margin: 20px auto; overflow-x: auto; }
+  .compare-table { width: 100%; border-collapse: collapse; }
+  .compare-table th {
+    background: #37474f; color: #fff; padding: 12px 8px; font-size: 13px; border: 1px solid #546e7a;
+  }
+  .compare-table td {
+    padding: 10px 8px; text-align: center; font-size: 13px; border: 1px solid #ddd;
+  }
+  .compare-table tr:nth-child(even) td { background: #fafafa; }
+  .compare-table tr:nth-child(odd) td { background: #fff; }
+  /* clean table, no mismatch styling */
+
+  /* Scanner diagram */
+  .diagram-wrap { max-width: 900px; margin: 30px auto; text-align: center; }
+
+  /* Actuator summary */
+  .act-summary {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 15px; max-width: 1200px; margin: 20px auto;
+  }
+  .act-box { border-radius: 10px; padding: 18px; background: #fff; }
+  .act-box h4 { font-size: 16px; margin-bottom: 12px; }
+  .act-box .params { display: flex; flex-wrap: wrap; gap: 6px; }
+  .act-box .param-tag {
+    padding: 4px 10px; border-radius: 6px; font-size: 13px; font-weight: bold;
+    font-family: 'Consolas', monospace;
+  }
+  .act-box .param-tag.wrong { border: 2px solid #d32f2f !important; position: relative; }
+</style>
+</head>
+<body>
+
+<h1>ASML Scanner Overlay 보정 모델: RK Parameter 시각화</h1>
+<h2>각 파라미터가 Shot 격자를 어떻게 변형시키는지 수학적으로 정확한 Grid Deformation</h2>
+<h2 style="font-size:12px; color:#555;">출처: "High Order Field-to-Field Corrections for Imaging and Overlay" (Mulkens et al., ASML, SPIE Proc. 8683, 2013)</h2>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-line" style="background:#ccc;"></div> 원래 격자 (이상적 Shot)</div>
+  <div class="legend-item"><div class="legend-line" style="background:#111;"></div> 변형된 격자 (해당 K 적용)</div>
+</div>
+
+<!-- ======================== SECTION 1: SCANNER ARCHITECTURE ======================== -->
+<div class="section-title">1. 스캐너 구조 & 액추에이터 개념</div>
+
+<div class="diagram-wrap">
+<canvas id="scannerDiagram" width="850" height="480"></canvas>
+</div>
+
+<!-- ======================== SECTION 2: ALL 20 PARAMETERS ======================== -->
+<div class="section-title">2. 20개 RK Parameter - Grid Deformation</div>
+
+<div class="note-box">
+  <b>보는 법:</b> 각 카드의 격자에서, <b style="color:#bbb;">회색 격자</b>가 원래 Shot이고, <b style="color:#111;">검정 격자</b>가 해당 K 파라미터에 의해 변형된 모습입니다.
+  좌표계는 Shot 중심이 (0,0)이며, x는 슬릿(Slit)방향, y는 스캔(Scan)방향입니다.
+</div>
+
+<div class="shot-grid" id="cardContainer"></div>
+
+<!-- ======================== SECTION 3: PARAMETER TABLE ======================== -->
+<div class="section-title">3. K Parameter 전체 테이블 (논문 Table 1 기준)</div>
+
+<div class="compare-wrap">
+<table class="compare-table" id="compareTable"></table>
+</div>
+
+<!-- ======================== SECTION 4: ACTUATOR SUMMARY ======================== -->
+<div class="section-title">4. 액추에이터별 분류 요약</div>
+
+<div class="act-summary" id="actSummary"></div>
+
+<br><br>
+<div style="text-align:center; color:#888; font-size:12px; margin-top:40px; padding:20px; border-top:1px solid #ddd;">
+  Sources: ASML SPIE Proc. 8683 (2013) &bull;
+  <a href="https://www.researchgate.net/publication/241563640" style="color:#1565c0;">Huang et al. SPIE 7272 (2009)</a> &bull;
+  <a href="https://www.asml.com/en/news/stories/2023/novel-lens-manipulator" style="color:#1565c0;">ASML Novel Lens Manipulator</a> &bull;
+  <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC12412054/" style="color:#1565c0;">High-order overlay correction (PMC)</a>
+</div>
+
+<script>
+// ==================== DATA ====================
+const params = [
+  { k:'K1',  name:'Translation X', fullName:'Translation', term:'dx = K1 (상수)', termMath: (x,y)=>[1, 0],
+    actuator:'Scan', desc:'모든 격자점이 X방향으로 동일하게 이동. Stage의 X위치 오프셋으로 보정.' },
+  { k:'K2',  name:'Translation Y', fullName:'Translation', term:'dy = K2 (상수)', termMath: (x,y)=>[0, 1],
+    actuator:'Scan', desc:'모든 격자점이 Y방향으로 동일하게 이동. Stage의 Y위치 오프셋으로 보정.' },
+  { k:'K3',  name:'Magnification X (Mx)', fullName:'Magnification', term:'dx = K3 * x', termMath: (x,y)=>[x, 0],
+    actuator:'Lens', desc:'X좌표에 비례하여 dx 발생. 중심에서 멀수록 X방향으로 벌어짐. 렌즈 배율 조정으로 보정.' },
+  { k:'K4',  name:'Magnification Y (My)', fullName:'Magnification', term:'dy = K4 * y', termMath: (x,y)=>[0, y],
+    actuator:'Scan', desc:'Y좌표에 비례하여 dy 발생. 스캔방향 배율. 레티클/웨이퍼 스테이지 속도비로 보정.' },
+  { k:'K5',  name:'Rotation X (Rx)', fullName:'Rotation', term:'dx = -K5 * y', termMath: (x,y)=>[-y, 0],
+    actuator:'Scan', desc:'Y좌표에 비례하여 dx 발생(부호 반대). 회전의 dx 성분. 웨이퍼 스테이지 회전으로 보정.' },
+  { k:'K6',  name:'Rotation Y (Ry)', fullName:'Rotation', term:'dy = K6 * x', termMath: (x,y)=>[0, x],
+    actuator:'Scan', desc:'X좌표에 비례하여 dy 발생. 회전의 dy 성분. 스테이지 동기화 위상차로 보정.' },
+  { k:'K7',  name:'2nd Order Mag X (D2x)', fullName:'2nd Order Magnification', term:'dx = K7 * x\u00B2', termMath: (x,y)=>[x*x, 0],
+    actuator:'Lens', desc:'x\u00B2에 비례하므로 dx는 항상 양수(같은 방향). 중심에서 멀수록 한쪽으로 밀림. 렌즈 매니퓰레이터로 보정.' },
+  { k:'K8',  name:'2nd Order Mag Y', fullName:'2nd Order Magnification', term:'dy = K8 * y\u00B2', termMath: (x,y)=>[0, y*y],
+    actuator:'Scan', desc:'y\u00B2에 비례하므로 dy는 항상 양수(같은 방향). 스캔 가속도 프로파일로 보정.' },
+  { k:'K9',  name:'Trapezoid X', fullName:'Trapezoid', term:'dx = K9 * x\u00B7y', termMath: (x,y)=>[x*y, 0],
+    actuator:'Scan Lens', desc:'x\u00B7y에 비례. 위/아래에서 X방향 벌어짐이 반대 \u2192 사다리꼴. 스캔 중 렌즈 동적 조정.' },
+  { k:'K10', name:'Trapezoid Y', fullName:'Trapezoid', term:'dy = K10 * y\u00B7x', termMath: (x,y)=>[0, y*x],
+    actuator:'Scan', desc:'y\u00B7x에 비례. 사다리꼴 Y성분. 스캔 속도 위치별 미세조정으로 보정.' },
+  { k:'K11', name:'Bow X', fullName:'Bow', term:'dx = K11 * y\u00B2', termMath: (x,y)=>[y*y, 0],
+    actuator:'Scan', desc:'y\u00B2에 비례하므로 dx는 항상 양수. 위아래 가장자리가 같은 방향으로 밀림(활 모양). 스캔 프로파일로 보정.' },
+  { k:'K12', name:'Bow Y (D2y)', fullName:'Bow', term:'dy = K12 * x\u00B2', termMath: (x,y)=>[0, x*x],
+    actuator:'Lens', desc:'x\u00B2에 비례하므로 dy는 항상 양수. 좌우 가장자리가 같은 방향으로 밀림. 렌즈 매니퓰레이터로 보정.' },
+  { k:'K13', name:'3rd Order Mag X (D3x)', fullName:'3rd Order Magnification', term:'dx = K13 * x\u00B3', termMath: (x,y)=>[x*x*x, 0],
+    actuator:'Lens', desc:'x\u00B3에 비례. 좌(-), 중심(0), 우(+)로 S자형 왜곡. 렌즈 고차 보정.' },
+  { k:'K14', name:'3rd Order Mag Y', fullName:'3rd Order Magnification', term:'dy = K14 * y\u00B3', termMath: (x,y)=>[0, y*y*y],
+    actuator:'Scan', desc:'y\u00B3에 비례. 상(-), 중심(0), 하(+)로 S자형 왜곡. 스캔 프로파일 고차 보정.' },
+  { k:'K15', name:'Accordion X', fullName:'Accordion', term:'dx = K15 * x\u00B2\u00B7y', termMath: (x,y)=>[x*x*y, 0],
+    actuator:'Scan Lens', desc:'x\u00B2\u00B7y에 비례. 위/아래에서 2차배율이 반대 \u2192 아코디언 주름. 스캔 중 렌즈 동적 변경.' },
+  { k:'K16', name:'Accordion Y', fullName:'Accordion', term:'dy = K16 * y\u00B2\u00B7x', termMath: (x,y)=>[0, y*y*x],
+    actuator:'Scan', desc:'y\u00B2\u00B7x에 비례. 아코디언 Y성분. 스캔 가감속으로 보정.' },
+  { k:'K17', name:'C-shape Distortion X', fullName:'C-shape Distortion', term:'dx = K17 * x\u00B7y\u00B2', termMath: (x,y)=>[x*y*y, 0],
+    actuator:'Scan Lens', desc:'x\u00B7y\u00B2에 비례. 위아래 가장자리에서 배율이 커지는 C형태. 스캔 중 렌즈 동적 조정.' },
+  { k:'K18', name:'C-shape Distortion Y', fullName:'C-shape Distortion', term:'dy = K18 * y\u00B7x\u00B2', termMath: (x,y)=>[0, y*x*x],
+    actuator:'Scan Lens', desc:'y\u00B7x\u00B2에 비례. 좌우 가장자리에서 Y배율이 커지는 C형태. 스캔 중 렌즈 동적 조정.' },
+  { k:'K19', name:'3rd Order Flow X', fullName:'3rd Order Flow', term:'dx = K19 * y\u00B3', termMath: (x,y)=>[y*y*y, 0],
+    actuator:'Scan', desc:'y\u00B3에 비례. 위(-), 중심(0), 아래(+)로 X방향 S자 흐름. 스캔 고차 프로파일로 보정.' },
+  { k:'K20', name:'3rd Order Flow Y (D3y)', fullName:'3rd Order Flow', term:'dy = K20 * x\u00B3', termMath: (x,y)=>[0, x*x*x],
+    actuator:'\u2014 (None)', desc:'x\u00B3에 비례. 좌(-), 중심(0), 우(+)로 Y방향 S자 흐름. 2013년 기준 보정 액추에이터 없음.' },
+];
+
+// ==================== GRID DRAWING FUNCTION ====================
+function drawGrid(canvas, termMath) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const N = 7; // grid lines per direction
+  const margin = 30;
+  const side = Math.min(W, H) - 2*margin; // force square
+  const ox = (W - side) / 2;  // center horizontally
+  const oy = (H - side) / 2;  // center vertically
+  const scale = 0.18; // deformation exaggeration (smaller to stay in bounds)
+
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0,0,W,H);
+
+  // coordinate label
+  ctx.fillStyle = '#999';
+  ctx.font = '10px Consolas';
+  ctx.textAlign = 'right';
+  ctx.fillText('x (Slit) \u2192', W-5, H-5);
+  ctx.textAlign = 'left';
+  ctx.fillText('\u2191 y (Scan)', margin+2, 12);
+
+  function toCanvas(gx, gy) {
+    return [ ox + (gx + 1)/2 * side, oy + (1 - gy)/2 * side ];
+  }
+
+  const vals = [];
+  for (let i = 0; i < N; i++) vals.push(-1 + 2*i/(N-1));
+
+  // --- Draw original grid (gray solid) ---
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 1;
+  for (let j = 0; j < N; j++) {
+    ctx.beginPath();
+    const [x0,y0] = toCanvas(-1, vals[j]);
+    const [x1,y1] = toCanvas(1, vals[j]);
+    ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  }
+  for (let i = 0; i < N; i++) {
+    ctx.beginPath();
+    const [x0,y0] = toCanvas(vals[i], -1);
+    const [x1,y1] = toCanvas(vals[i], 1);
+    ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  }
+
+  // --- Original grid dots (gray) ---
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const [cx,cy] = toCanvas(vals[i], vals[j]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = '#bbb';
+      ctx.fill();
+    }
+  }
+
+  // --- Deformed grid (black) ---
+  const NF = 40;
+  const fvals = [];
+  for (let i = 0; i <= NF; i++) fvals.push(-1 + 2*i/NF);
+
+  function deformed(gx, gy) {
+    const [ddx, ddy] = termMath(gx, gy);
+    return toCanvas(gx + ddx*scale, gy + ddy*scale);
+  }
+
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 1.8;
+
+  for (let j = 0; j < N; j++) {
+    ctx.beginPath();
+    for (let i = 0; i <= NF; i++) {
+      const [px,py] = deformed(fvals[i], vals[j]);
+      if (i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+  }
+  for (let i = 0; i < N; i++) {
+    ctx.beginPath();
+    for (let j = 0; j <= NF; j++) {
+      const [px,py] = deformed(vals[i], fvals[j]);
+      if (j===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+  }
+
+  // --- Deformed grid dots (black) ---
+  for (let i = 0; i < N; i++) {
+    for (let j = 0; j < N; j++) {
+      const [cx,cy] = deformed(vals[i], vals[j]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3, 0, Math.PI*2);
+      ctx.fillStyle = '#111';
+      ctx.fill();
+    }
+  }
+}
+
+function getActClass(act) {
+  if (act === 'Lens') return 'act-lens';
+  if (act === 'Scan Lens') return 'act-scanlens';
+  if (act === '\u2014 (None)') return 'act-none';
+  return 'act-scan';
+}
+
+// ==================== RENDER CARDS ====================
+const container = document.getElementById('cardContainer');
+
+params.forEach((p, idx) => {
+  const card = document.createElement('div');
+  card.className = 'shot-card';
+
+  // Header elements
+  const label = document.createElement('div');
+  label.className = 'k-label';
+  label.textContent = p.k;
+  card.appendChild(label);
+
+  const name = document.createElement('div');
+  name.className = 'k-name';
+  name.innerHTML = p.name + ' &mdash; ' + p.fullName;
+  card.appendChild(name);
+
+  const term = document.createElement('div');
+  term.className = 'k-term';
+  term.textContent = p.term;
+  card.appendChild(term);
+
+  // Canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = 280;
+  canvas.height = 280;
+  card.appendChild(canvas);
+
+  // Badge
+  const badge = document.createElement('span');
+  badge.className = 'actuator-badge ' + getActClass(p.actuator);
+  badge.textContent = p.actuator;
+  card.appendChild(badge);
+
+  // Description
+  const desc = document.createElement('div');
+  desc.className = 'k-desc';
+  desc.textContent = p.desc;
+  card.appendChild(desc);
+
+  container.appendChild(card);
+  drawGrid(canvas, p.termMath);
+});
+
+// ==================== SCANNER DIAGRAM ====================
+(function() {
+  const c = document.getElementById('scannerDiagram');
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle = '#ddd';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0,0,W,H);
+
+  function roundRect(x,y,w,h,r,fill,stroke,lw,dash) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+    ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+    ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+    ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r); ctx.closePath();
+    if (dash) ctx.setLineDash(dash);
+    if (fill) { ctx.fillStyle=fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle=stroke; ctx.lineWidth=lw||2; ctx.stroke(); }
+    ctx.restore();
+  }
+  function arrow(x1,y1,x2,y2,color,lw) {
+    ctx.strokeStyle = color; ctx.lineWidth = lw||1.5;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    const a = Math.atan2(y2-y1,x2-x1), s=7;
+    ctx.beginPath();
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-s*Math.cos(a-0.35), y2-s*Math.sin(a-0.35));
+    ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-s*Math.cos(a+0.35), y2-s*Math.sin(a+0.35));
+    ctx.stroke();
+  }
+  function text(str,x,y,color,size,align,bold) {
+    ctx.fillStyle=color; ctx.font=(bold?'bold ':'')+size+'px Malgun Gothic, sans-serif';
+    ctx.textAlign=align||'center'; ctx.fillText(str,x,y);
+  }
+
+  // Light
+  roundRect(310,10,230,35,8,'#fff8e1','#e65100',1.5);
+  text('Light Source (ArF 193nm)',425,33,'#bf360c',14,'center',true);
+
+  ctx.setLineDash([4,4]); ctx.strokeStyle='#ccc'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(425,45); ctx.lineTo(425,70); ctx.stroke(); ctx.setLineDash([]);
+
+  // Reticle Stage
+  roundRect(240,70,370,50,8,'#e8f5e9','#2e7d32',2);
+  text('Reticle Stage',425,92,'#1b5e20',15,'center',true);
+  text('(\uB808\uD2F0\uD074 \uD0D1\uC7AC, Y\uBC29\uD5A5 \uC2A4\uCE94)',425,110,'#4caf50',10,'center');
+  arrow(625,82,625,115,'#2e7d32',1.5);
+  arrow(625,95,625,72,'#2e7d32',1.5);
+  text('Scan',648,98,'#2e7d32',11,'left');
+
+  ctx.setLineDash([4,4]); ctx.strokeStyle='#ccc'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(425,120); ctx.lineTo(425,155); ctx.stroke(); ctx.setLineDash([]);
+
+  // Projection Lens
+  ctx.beginPath(); ctx.ellipse(425,200,150,48,0,0,Math.PI*2);
+  ctx.fillStyle='#e3f2fd'; ctx.fill(); ctx.strokeStyle='#1565c0'; ctx.lineWidth=2; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(425,200,105,32,0,0,Math.PI*2);
+  ctx.strokeStyle='#90caf9'; ctx.lineWidth=1; ctx.stroke();
+  text('Projection Lens',425,196,'#0d47a1',15,'center',true);
+  text('(\uB80C\uC988 \uB9E4\uB2C8\uD4D8\uB808\uC774\uD130)',425,214,'#1976d2',10,'center');
+  arrow(272,192,295,192,'#1565c0',1.5);
+  arrow(578,192,555,192,'#1565c0',1.5);
+  text('Manipulator',240,196,'#1565c0',10,'right');
+
+  ctx.setLineDash([4,4]); ctx.strokeStyle='#ccc'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(425,248); ctx.lineTo(425,275); ctx.stroke(); ctx.setLineDash([]);
+
+  // Scan Lens Zone
+  roundRect(220,275,410,45,8,'#fff3e0','#e65100',1.5,[6,3]);
+  text('Scan Lens Zone',425,295,'#bf360c',13,'center',true);
+  text('(\uC2A4\uCE94 \uC911 \uB80C\uC988 \uB3D9\uC801 \uC870\uC815 = \uAD50\uCC28\uD56D \uBCF4\uC815)',425,312,'#e65100',10,'center');
+
+  ctx.setLineDash([4,4]); ctx.strokeStyle='#ccc'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(425,320); ctx.lineTo(425,350); ctx.stroke(); ctx.setLineDash([]);
+
+  // Wafer Stage
+  roundRect(230,350,390,70,8,'#e8f5e9','#2e7d32',2);
+  ctx.beginPath(); ctx.arc(425,385,25,0,Math.PI*2);
+  ctx.fillStyle='#e0e0e0'; ctx.fill(); ctx.strokeStyle='#888'; ctx.lineWidth=1.5; ctx.stroke();
+  text('Wafer',425,389,'#555',10,'center');
+  text('Wafer Stage',330,408,'#1b5e20',14,'left',true);
+  text('(X/Y \uC774\uB3D9 + \uD68C\uC804, \uC2A4\uCE94 \uB3D9\uAE30\uD654)',425,432,'#4caf50',10,'center');
+  arrow(635,370,635,415,'#2e7d32',1.5);
+  arrow(635,388,635,362,'#2e7d32',1.5);
+  text('Scan',658,392,'#2e7d32',11,'left');
+
+  arrow(730,440,790,440,'#999',1.2);
+  arrow(730,440,730,385,'#999',1.2);
+  text('X (Slit)',795,444,'#666',12,'left');
+  text('Y (Scan)',718,380,'#666',12,'right');
+
+  // Role box
+  roundRect(10,75,210,170,8,'#fafafa','#bbb',1);
+  text('\uC561\uCD94\uC5D0\uC774\uD130\uBCC4 \uC5ED\uD560',115,98,'#333',13,'center',true);
+  ctx.strokeStyle='#ccc'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(20,108); ctx.lineTo(210,108); ctx.stroke();
+
+  ctx.beginPath(); ctx.arc(30,128,5,0,Math.PI*2); ctx.fillStyle='#2e7d32'; ctx.fill();
+  text('Scan: \uC21C\uC218 y\uD56D + K6,K10,K16',42,132,'#333',11,'left');
+
+  ctx.beginPath(); ctx.arc(30,155,5,0,Math.PI*2); ctx.fillStyle='#1565c0'; ctx.fill();
+  text('Lens: \uC21C\uC218 x\uD56D (dx: K3,K7,K13)',42,159,'#333',11,'left');
+  text('             (dy: K12 only)',42,173,'#666',10,'left');
+
+  ctx.beginPath(); ctx.arc(30,192,5,0,Math.PI*2); ctx.fillStyle='#e65100'; ctx.fill();
+  text('Scan Lens: \uAD50\uCC28\uD56D',42,196,'#333',11,'left');
+  text('(dx: K9,K15,K17 / dy: K18)',42,210,'#666',10,'left');
+
+  ctx.beginPath(); ctx.arc(30,228,5,0,Math.PI*2); ctx.fillStyle='#c62828'; ctx.fill();
+  text('K20: \uC561\uCD94\uC5D0\uC774\uD130 \uC5C6\uC74C',42,232,'#c62828',11,'left');
+})();
+
+// ==================== COMPARISON TABLE ====================
+(function() {
+  const table = document.getElementById('compareTable');
+  let html = `<thead><tr>
+    <th>K</th><th>\uBB3C\uB9AC\uC801 \uC758\uBBF8</th><th>\uC218\uC2DD \uD56D</th><th>\uC561\uCD94\uC5D0\uC774\uD130</th>
+  </tr></thead><tbody>`;
+  params.forEach(p => {
+    html += `<tr><td>${p.k}</td><td>${p.fullName}</td><td>${p.term.replace('dx = ','').replace('dy = ','')}</td>
+      <td>${p.actuator}</td></tr>`;
+  });
+  html += '</tbody>';
+  table.innerHTML = html;
+})();
+
+// ==================== ACTUATOR SUMMARY ====================
+(function() {
+  const wrap = document.getElementById('actSummary');
+
+  const groups = [
+    { name: 'Scan (Wafer/Reticle Stage)', color: '#2e7d32', bg: '#e8f5e9', border: '#4caf50',
+      dx: ['K1','K5','K11','K19'], dy: ['K2','K4','K6','K8','K10','K14','K16'] },
+    { name: 'Lens (Projection Lens)', color: '#1565c0', bg: '#e3f2fd', border: '#42a5f5',
+      dx: ['K3','K7','K13'], dy: ['K12'] },
+    { name: 'Scan Lens (\uB3D9\uC801 \uB80C\uC988 \uC870\uC815)', color: '#e65100', bg: '#fff3e0', border: '#ff9800',
+      dx: ['K9','K15','K17'], dy: ['K18'] },
+    { name: '\u2014 (\uC561\uCD94\uC5D0\uC774\uD130 \uC5C6\uC74C)', color: '#c62828', bg: '#ffebee', border: '#ef5350',
+      dx: [], dy: ['K20'] },
+  ];
+
+  groups.forEach(g => {
+    const box = document.createElement('div');
+    box.className = 'act-box';
+    box.style.background = g.bg;
+    box.style.border = `2px solid ${g.border}`;
+
+    let dxTags = g.dx.map(k =>
+      `<span class="param-tag" style="background:${g.bg};color:${g.color};border:1px solid ${g.color}55;">${k}</span>`
+    ).join('');
+    let dyTags = g.dy.map(k =>
+      `<span class="param-tag" style="background:${g.bg};color:${g.color};border:1px solid ${g.color}55;">${k}</span>`
+    ).join('');
+
+    box.innerHTML = `
+      <h4 style="color:${g.color};">${g.name}</h4>
+      <div style="margin-bottom:8px;"><span style="color:#999;font-size:12px;">dx (X):</span> <div class="params" style="display:inline-flex;">${dxTags||'<span style="color:#555;font-size:12px;">\u2014</span>'}</div></div>
+      <div><span style="color:#999;font-size:12px;">dy (Y):</span> <div class="params" style="display:inline-flex;">${dyTags}</div></div>
+    `;
+    wrap.appendChild(box);
+  });
+})();
+</script>
+</body>
+</html>

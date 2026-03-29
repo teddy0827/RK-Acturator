@@ -1,0 +1,36 @@
+■ 배경지식
+ASML 스캐너 노광설비에서 overlay보정관점에서
+Shot성분 missalign을 보정하기 위해서 아래와 같은 모델링을 한다. 
+Polynomial Regression을 위한 수식
+dx = RK1 + RK3*x - RK5*y + RK7*x^2 + RK9*x*y + RK11*y^2 + RK13*x^3 + RK15*x^2*y + RK17*x*y^2 + RK19*y^3
+dy = RK2 + RK4*y + RK6*x + RK8*y^2 + RK10*y*x + RK12*x^2 + RK14*y^3 + RK16*y^2*x + RK18*y*x^2 + RK20*x^3
+
+각각의 rk parameter가 의미하는 shot의 모양이 있고, 
+그러한 모양을 엑츄에이터가 구현해내야하는 걸로 알고 있다. 
+
+
+■ 요구사항
+인터넷상의 논문을 검색해서 ASML노광설비가 shot성분을 어떤식으로 보정하는지 검색해달라. (spie사이트에 관련자료가 많을것이다.)
+각각의 RK Parameter가 있으면,  그걸 제어하기 위한 acturator가 있을것이다.
+엑츄레이터가 각각의 RK parameter를 어떻게 제어하는지 궁금하다.
+내가 알기론,   wafer stage, lens, scanning lens로 제어하는것으로 알고있다.
+* Wafer Stage
+X방향 : K1, K5, K11, K19
+Y방향 : K2, K4, K8, K14
+* LENS
+X방향 : K3, K7, K13
+Y방향 : K6, K12, K20
+* SCANNING LENS
+X방향 : K9, K15, K17
+Y방향 : K10, K16, K18
+
+배경지식.xlsx에 표로 정리해놨다.  이 표가 맞는지,  확인해달라. 
+
+
+
+각각의 rk parameter가 의미하는 shot의 모양이 있고, 
+그러한 모양을 엑츄에이터가 구현해내야하는 걸로 알고 있다. 
+
+
+
+ 
